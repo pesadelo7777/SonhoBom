@@ -18,7 +18,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 1. Primeiro damos a partida no Motor do Banco de Dados
 mongoManager.conectar().then(() => {
-    
     // 2. Só depois que o banco confirmar, instanciamos o Maestro do sistema
     const botManager = new BotManager();
 
@@ -30,12 +29,6 @@ mongoManager.conectar().then(() => {
 }).catch(err => {
     console.error("Não foi possível iniciar o bot porque o Banco de Dados falhou:", err);
 });
-
-// ==========================================
-// 🫁 SERVIDOR ANTI-SONO (RENDER.COM)
-// ==========================================
-// O Render exige que a aplicação responda a requisições web para manter a máquina ligada.
-const PORTA_WEB = process.env.PORT || 8080;
 
 // ==========================================
 // 🫁 SERVIDOR ANTI-SONO E API DE VERIFICAÇÃO (RENDER.COM)
@@ -60,7 +53,6 @@ http.createServer(async (req, res) => {
 
         try {
             const response = await axios.get(`https://api.imvu.com/profile/profile-user-${username}`);
-            // A API do Next devolve a tagline dentro do array de denormalized
             const avatarData = Object.values(response.data.denormalized).find((item: any) => item?.data?.tagline !== undefined) as any;
             
             res.writeHead(200);

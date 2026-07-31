@@ -16,7 +16,6 @@ export class BotManager {
     
     private supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
     public clientesAtivos: Map<string, RoomInstance> = new Map();
-    // Guarda os cronômetros de cada cliente para a visita de 1 hora
     private temporizadoresDeVisita: Map<string, NodeJS.Timeout> = new Map();
 
     public async iniciar() {
@@ -35,6 +34,47 @@ export class BotManager {
 
         // INJEÇÃO: Liga o radar silencioso após criar as salas
         this.iniciarRadarFinanceiro();
+    }
+
+    private async autenticar(): Promise<boolean> {
+        console.log(`${Color.Yellow}[*] Conectando aos servidores centrais...${Color.Reset}`);
+        try {
+            const loginRes = await axios.post('https://api.imvu.com/login', { 
+                username: CONFIG.BOT_USER, password: CONFIG.BOT_PASS 
+            }, { headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+
+            if (loginRes.data.status !== 'success') return false;
+
+            const match = JSON.stringify(loginRes.data).match(/"sauce":"([^"]+)"/);
+            if (match) this.sauce = match[1];
+
+            const cookies = loginRes.headers['set-cookie'];
+            if (cookies) {
+                cookies.forEach((c: string) => {
+                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
+                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
+                });
+            }
+
+            this.postHeaders = { 'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 'X-Imvu-Application': 'next_desktop/1', 'User-Agent': 'Mozilla/5.0' };
+            if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
+
+            console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
+            return true;
+        } catch (e: any) {
+            return false;
+        }
+    }
+
+    private async carregarGuardaRoupa() {
+        try {
+            const avRes = await axios.get(`https://api.imvu.com/avatar/avatar-${CONFIG.AVATAR_ID}`, { headers: this.postHeaders });
+            const productMatches = JSON.stringify(avRes.data).match(/product-(\d+)/g);
+            if (productMatches) {
+                const uniqueIds = [...new Set(productMatches.map(p => p.replace('product-', '')))];
+                this.outfitString = `*use ${uniqueIds.join(' ')}`;
+            }
+        } catch (e) {}
     }
 
     private async autenticar(): Promise<boolean> {

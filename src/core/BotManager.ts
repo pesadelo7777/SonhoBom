@@ -155,26 +155,33 @@ export class BotManager {
     // 🏦 MOTOR FINANCEIRO (ESCUTA DE SOCKET DA CARTEIRA)
     // ============================================================
     private iniciarRadarFinanceiro() {
+        const bot = this; // <-- ÂNCORA ABSOLUTA: O Node nunca mais vai perder o contexto
+
         console.log(`${Color.Yellow}[*] Inicializando Radar Financeiro (Socket da Carteira)...${Color.Reset}`);
 
         const ws = new WebSocket('wss://imq.imvu.com:444/streaming/imvu_pre', {
-            headers: { 'Cookie': `osCsid=${this.osCsid};`, 'User-Agent': 'Mozilla/5.0' },
+            headers: { 'Cookie': `osCsid=${bot.osCsid};`, 'User-Agent': 'Mozilla/5.0' },
             rejectUnauthorized: false
         });
 
-        // Variável para guardar o cronômetro do Heartbeat (Batimento Cardíaco)
         let heartbeat: NodeJS.Timeout;
 
         ws.on('open', () => {
-            // Autentica o socket com a sessão mestre
-            ws.send(JSON.stringify({ record: "msg_c2g_connect", user_id: String(CONFIG.AVATAR_ID), cookie: Buffer.from(self.osCsid).toString('base64'), metadata: [], op_id: 1 }));
+            // Autentica o socket com a sessão mestre usando a âncora 'bot'
+            ws.send(JSON.stringify({ 
+                record: "msg_c2g_connect", 
+                user_id: String(CONFIG.AVATAR_ID), 
+                cookie: Buffer.from(bot.osCsid).toString('base64'), 
+                metadata: [], 
+                op_id: 1 
+            }));
 
-            // INJEÇÃO DEFINITIVA: Em vez de pulso de rede, manda um PING em formato JSON a cada 20s
+            // INJEÇÃO DEFINITIVA: Manda um PING em formato JSON a cada 20s para o IMVU não cortar
             heartbeat = setInterval(() => {
                 if (ws.readyState === ws.OPEN) {
                     ws.send(JSON.stringify({ record: "msg_c2g_ping" })); 
                 }
-            }, 20000); // 20 segundos impede a guilhotina de 60s do IMVU
+            }, 20000); 
         });
 
         ws.on('message', async (raw: any) => {
@@ -186,33 +193,27 @@ export class BotManager {
                     return;
                 }
 
-                // Quando conecta com sucesso (status 0), se inscreve UNICAMENTE na carteira
                 if (msg.record === 'msg_g2c_result' && msg.status === 0 && msg.op_id === 1) {
                     const queueCarteira = `inv:/wallet/wallet-${CONFIG.AVATAR_ID}`;
                     ws.send(JSON.stringify({ queues_with_results: [{ record: "subscription", name: queueCarteira, op_id: 2 }], record: "msg_c2g_subscribe" }));
                     console.log(`${Color.Green}[+] Radar Financeiro blindado na fila da carteira principal!${Color.Reset}`);
                 }
 
-                // O GATILHO (A "Assinatura" que achamos): Apenas o Admin pode enviar msg pra essa fila oculta
                 if (msg.record === 'msg_g2c_send_message' && msg.user_id === 'YWRtaW4=') {
                     console.log(`${Color.Cyan}[FINANCEIRO] Movimentação na carteira detectada! Auditando extrato em 3s...${Color.Reset}`);
-
-                    // Espera 3 segundos pro IMVU gerar a mensagem de comprovante no Inbox
-                    setTimeout(() => this.auditarExtrato(), 3000);
+                    
+                    // Usa a âncora 'bot' para chamar a auditoria de forma segura
+                    setTimeout(() => { bot.auditarExtrato(); }, 3000);
                 }
             } catch(e) {}
         });
 
-        // Loop de auto-recuperação caso a rede do Render pisque
         ws.on('close', () => {
-            // Limpa o cronômetro para evitar vazamento de memória se o socket fechar
             if (heartbeat) clearInterval(heartbeat);
-
             console.log(`${Color.Red}[!] Radar Financeiro caiu. Reiniciando o Socket invisível em 10s...${Color.Reset}`);
-            setTimeout(() => this.iniciarRadarFinanceiro(), 10000);
+            setTimeout(() => { bot.iniciarRadarFinanceiro(); }, 10000);
         });
 
-        // Escuta de erros silenciosos que poderiam travar o bot
         ws.on('error', (err: any) => {
             console.log(`${Color.Red}[!] Erro de Rede no Radar Financeiro: ${err.message}${Color.Reset}`);
         });

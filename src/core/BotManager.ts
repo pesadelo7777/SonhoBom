@@ -199,10 +199,11 @@ export class BotManager {
                     console.log(`${Color.Green}[+] Radar Financeiro blindado na fila da carteira principal!${Color.Reset}`);
                 }
 
-                if (msg.record === 'msg_g2c_send_message' && msg.user_id === 'YWRtaW4=') {
-                    console.log(`${Color.Cyan}[FINANCEIRO] Movimentação na carteira detectada! Auditando extrato em 3s...${Color.Reset}`);
+                // CORREÇÃO DEFINITIVA: Qualquer sinal que chegue nesse socket dedicado dispara a auditoria.
+                // A própria função 'auditarExtrato' já tem travas de segurança para ler apenas mensagens reais do sistema (user-1).
+                if (msg.record && msg.record !== 'msg_g2c_ping' && msg.record !== 'msg_g2c_result') {
+                    console.log(`${Color.Cyan}[FINANCEIRO] Atividade detectada na carteira (${msg.record})! Auditando extrato em 3s...${Color.Reset}`);
                     
-                    // Usa a âncora 'bot' para chamar a auditoria de forma segura
                     setTimeout(() => { bot.auditarExtrato(); }, 3000);
                 }
             } catch(e) {}

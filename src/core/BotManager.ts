@@ -9,7 +9,6 @@ const WebSocket = require('ws');
 
 export class BotManager {
     private osid: string = '';
-    private osid: string = '';
     private osCsid: string = '';
     private sauce: string = '';
     private outfitString: string = '*use 191 80 85'; 

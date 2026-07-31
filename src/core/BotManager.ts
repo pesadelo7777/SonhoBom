@@ -188,14 +188,11 @@ export class BotManager {
             try {
                 const msg = JSON.parse(raw.toString());
                 
-                // Responde ao ping do servidor IMVU educadamente e sai fora
-                if (msg.record === 'msg_g2c_ping') {
-                    ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
-                    return;
-                }
-
-                // Ignora o próprio pong que o servidor nos manda de volta
-                if (msg.record === 'msg_g2c_pong') {
+                // Ignora apenas os pings e pongs de manutenção de rede
+                if (!msg.record || msg.record === 'msg_g2c_ping' || msg.record === 'msg_g2c_pong') {
+                    if (msg.record === 'msg_g2c_ping') {
+                        ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
+                    }
                     return;
                 }
 
@@ -203,14 +200,16 @@ export class BotManager {
                     const queueCarteira = `inv:/wallet/wallet-${CONFIG.AVATAR_ID}`;
                     ws.send(JSON.stringify({ queues_with_results: [{ record: "subscription", name: queueCarteira, op_id: 2 }], record: "msg_c2g_subscribe" }));
                     console.log(`${Color.Green}[+] Radar Financeiro blindado na fila da carteira principal!${Color.Reset}`);
+                    return;
                 }
 
-                // GATILHO RESTRITO E SEGURO: Só audita se houver uma mensagem nova enviada para o usuário ou evento de saldo
-                if (msg.record === 'msg_g2c_send_message' || (msg.name && msg.name.includes('wallet'))) {
-                    console.log(`${Color.Cyan}[FINANCEIRO] Movimentação real detectada na carteira! Auditando extrato em 3s...${Color.Reset}`);
-                    
-                    setTimeout(() => { bot.auditarExtrato(); }, 3000);
-                }
+                // GATILHO UNIVERSAL: Qualquer evento real na conta (como updateCreditBalances ou messageReceived) dispara a auditoria
+                console.log(`${Color.Cyan}[FINANCEIRO] Evento detectado na rede (${msg.record})! Auditando extrato em 3s...${Color.Reset}`);
+                
+                setTimeout(() => { 
+                    bot.auditarExtrato(); 
+                }, 3000);
+
             } catch(e) {}
         });
 

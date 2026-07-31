@@ -167,14 +167,14 @@ export class BotManager {
 
         ws.on('open', () => {
             // Autentica o socket com a sessão mestre
-            ws.send(JSON.stringify({ record: "msg_c2g_connect", user_id: String(CONFIG.AVATAR_ID), cookie: Buffer.from(this.osCsid).toString('base64'), metadata: [], op_id: 1 }));
+            ws.send(JSON.stringify({ record: "msg_c2g_connect", user_id: String(CONFIG.AVATAR_ID), cookie: Buffer.from(self.osCsid).toString('base64'), metadata: [], op_id: 1 }));
 
-            // INJEÇÃO: Envia um pulso de rede a cada 30 segundos para a conexão não morrer de tédio
+            // INJEÇÃO DEFINITIVA: Em vez de pulso de rede, manda um PING em formato JSON a cada 20s
             heartbeat = setInterval(() => {
                 if (ws.readyState === ws.OPEN) {
-                    ws.ping(); // Pulso invisível de rede
+                    ws.send(JSON.stringify({ record: "msg_c2g_ping" })); 
                 }
-            }, 30000); 
+            }, 20000); // 20 segundos impede a guilhotina de 60s do IMVU
         });
 
         ws.on('message', async (raw: any) => {

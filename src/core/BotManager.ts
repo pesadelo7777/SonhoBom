@@ -52,17 +52,41 @@ export class BotManager {
             const cookies = loginRes.headers['set-cookie'];
             if (cookies) {
                 cookies.forEach((c: string) => {
-                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
-                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
+                    if (c.includes('osid=')) {
+                        const parts = c.split(';');
+                        for (const p of parts) {
+                            if (p.trim().startsWith('osid=')) {
+                                this.osid = p.trim().replace('osid=', '');
+                            }
+                        }
+                    }
+                    if (c.includes('osCsid=')) {
+                        const parts = c.split(';');
+                        for (const p of parts) {
+                            if (p.trim().startsWith('osCsid=')) {
+                                this.osCsid = p.trim().replace('osCsid=', '');
+                            }
+                        }
+                    }
                 });
             }
 
-            this.postHeaders = { 'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 'X-Imvu-Application': 'next_desktop/1', 'User-Agent': 'Mozilla/5.0' };
+            this.postHeaders = { 
+                'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 
+                'X-Imvu-Application': 'next_desktop/1', 
+                'User-Agent': 'Mozilla/5.0' 
+            };
             if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
 
-            console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
+            if (!this.osid) {
+                console.log(`${Color.Red}[!] Alerta: O token osid veio vazio no login!${Color.Reset}`);
+                return false;
+            }
+
+            console.log(`${Color.Green}[+] Autenticação Mestre concluída com sucesso.${Color.Reset}`);
             return true;
         } catch (e: any) {
+            console.error("Erro na autenticação mestre:", e.message);
             return false;
         }
     }

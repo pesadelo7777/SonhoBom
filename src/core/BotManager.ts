@@ -51,20 +51,21 @@ export class BotManager {
 
             const cookies = loginRes.headers['set-cookie'];
             if (cookies) {
-                cookies.forEach((cookieHeader: string) => {
-                    // Divide os atributos do cookie (ex: osid=abc; Path=/; Domain=...)
-                    const cookieParts = cookieHeader.split(';');
-                    for (const part of cookieParts) {
-                        const trimmed = part.trim();
-                        if (trimmed.startsWith('osid=')) {
-                            this.osid = trimmed.replace('osid=', '');
-                        }
-                        if (trimmed.startsWith('osCsid=')) {
-                            this.osCsid = trimmed.replace('osCsid=', '');
-                        }
-                    }
+                cookies.forEach((c: string) => {
+                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
+                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
                 });
             }
+
+            this.postHeaders = { 'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 'X-Imvu-Application': 'next_desktop/1', 'User-Agent': 'Mozilla/5.0' };
+            if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
+
+            console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
+            return true;
+        } catch (e: any) {
+            return false;
+        }
+    }
 
             this.postHeaders = { 
                 'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 

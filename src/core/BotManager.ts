@@ -223,5 +223,73 @@ export class BotManager {
             console.log(`${Color.Red}[!] Erro de Rede no Radar Financeiro: ${err.message}${Color.Reset}`);
         });
     }
+
+    private auditarExtrato = async () => {
+        try {
+            // Puxa as últimas 5 mensagens pra ver quem foi que mandou o dinheiro
+            const msgRes = await axios.get('https://api.imvu.com/message/message', {
+                headers: this.postHeaders,
+                params: { limit: 5 }
+            });
+
+            const messages = msgRes.data.denormalized;
+            if (!messages) return;
+
+            for (const key in messages) {
+                const msg = messages[key].data;
+
+                // Tem que ser do Sistema do IMVU (user-1) e tem que ser Não Lida (unread: true) pra não creditar 2x
+                if (msg && msg.unread && msg.sender === "http://api.imvu.com/user/user-1") {
+                    const corpoMensagem = msg.message.toLowerCase();
+
+                    // Se a mensagem contiver as palavras chaves do IMVU de transferência:
+                    if (corpoMensagem.includes("credits from") || corpoMensagem.includes("créditos de")) {
+                        const valorMatch = msg.message.match(/(\d+)\s*credits/i) || msg.message.match(/(\d+)\s*créditos/i);
+                        const remetenteMatch = msg.message.match(/from\s+([a-zA-Z0-9_-]+)/i) || msg.message.match(/de\s+([a-zA-Z0-9_-]+)/i);
+
+                        if (valorMatch && remetenteMatch) {
+                            const creditosRecebidos = parseInt(valorMatch[1].replace(/[.,]/g, ''));
+                            const nickPagador = remetenteMatch[1].toLowerCase();
+
+                            console.log(`\x1b[32m[PAGAMENTO] ${creditosRecebidos} Créditos recebidos de @${nickPagador}\x1b[0m`);
+
+                            // 1. MARCA COMO LIDA: Desarma a bomba na API do IMVU para não entregar moedas duplicadas
+                            await axios.post(`https://api.imvu.com/message/message-${msg.id}`, { unread: false }, { headers: this.postHeaders });
+
+                            // 2. ENTREGA O PRODUTO NO SUPABASE
+                            const { data: userData } = await this.supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
+
+                            if (userData) {
+                                // SE MANDOU EXATAMENTE 20K -> ATIVA VIP 15
+                                if (creditosRecebidos === 20000) {
+                                    await this.supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
+                                    console.log(`\x1b[35m[SISTEMA] Plano VIP 15 entregue automaticamente para @${nickPagador}\x1b[0m`);
+                                } 
+                                // SE MANDOU EXATAMENTE 35K -> ATIVA VIP 30
+                                else if (creditosRecebidos === 35000) {
+                                    await this.supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
+                                    console.log(`\x1b[35m[SISTEMA] Plano VIP 30 entregue automaticamente para @${nickPagador}\x1b[0m`);
+                                } 
+                                // QUALQUER OUTRO VALOR -> SOMA NA CARTEIRA COMO MOEDAS AVULSAS
+                                else {
+                                    const moedasCompradas = Math.floor(creditosRecebidos / 200);
+                                    if (moedasCompradas > 0) {
+                                        await this.supabase.from('profiles').update({
+                                            moedas_avulsas: (userData.moedas_avulsas || 0) + moedasCompradas
+                                        }).eq('id', userData.id);
+                                        console.log(`\x1b[32m[SISTEMA] +${moedasCompradas} Moedas entregues para @${nickPagador}\x1b[0m`);
+                                    }
+                                }
+                            } else {
+                                console.log(`\x1b[31m[ALERTA FINANCEIRO] @${nickPagador} pagou, mas não tem conta LifeVU vinculada!\x1b[0m`);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Erro Crítico ao auditar extrato:", e);
+        }
+    }
     
 }

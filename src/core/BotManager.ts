@@ -188,8 +188,14 @@ export class BotManager {
             try {
                 const msg = JSON.parse(raw.toString());
                 
+                // Responde ao ping do servidor IMVU educadamente e sai fora
                 if (msg.record === 'msg_g2c_ping') {
                     ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
+                    return;
+                }
+
+                // Ignora o próprio pong que o servidor nos manda de volta
+                if (msg.record === 'msg_g2c_pong') {
                     return;
                 }
 
@@ -199,10 +205,9 @@ export class BotManager {
                     console.log(`${Color.Green}[+] Radar Financeiro blindado na fila da carteira principal!${Color.Reset}`);
                 }
 
-                // CORREÇÃO DEFINITIVA: Qualquer sinal que chegue nesse socket dedicado dispara a auditoria.
-                // A própria função 'auditarExtrato' já tem travas de segurança para ler apenas mensagens reais do sistema (user-1).
-                if (msg.record && msg.record !== 'msg_g2c_ping' && msg.record !== 'msg_g2c_result') {
-                    console.log(`${Color.Cyan}[FINANCEIRO] Atividade detectada na carteira (${msg.record})! Auditando extrato em 3s...${Color.Reset}`);
+                // GATILHO RESTRITO E SEGURO: Só audita se houver uma mensagem nova enviada para o usuário ou evento de saldo
+                if (msg.record === 'msg_g2c_send_message' || (msg.name && msg.name.includes('wallet'))) {
+                    console.log(`${Color.Cyan}[FINANCEIRO] Movimentação real detectada na carteira! Auditando extrato em 3s...${Color.Reset}`);
                     
                     setTimeout(() => { bot.auditarExtrato(); }, 3000);
                 }

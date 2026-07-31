@@ -52,34 +52,37 @@ http.createServer(async (req, res) => {
         }
 
         try {
-            // 1. Converte o Nickname (ex: ipsd) para o ID Numérico oficial do IMVU
-            const idResponse = await axios.get(`https://api.imvu.com/avatar/avatarname-${username}`);
+            // 1. Usamos EXATAMENTE o endpoint testado e validado por você
+            const response = await axios.get(`https://api.imvu.com/user?username=${username}`);
             
-            // Se o IMVU retornar falha (ex: nick não existe), cortamos a operação aqui
-            if (idResponse.data.status !== 'success' || !idResponse.data.id) {
+            // 2. Extraímos o objeto denormalized do JSON
+            const denormalized = response.data.denormalized;
+            if (!denormalized) {
                 res.writeHead(404);
-                return res.end(JSON.stringify({ error: "Avatar não encontrado" }));
+                return res.end(JSON.stringify({ error: "Perfil vazio ou não encontrado." }));
             }
 
-            // O IMVU devolve o ID no formato HATEOAS: "http://api.imvu.com/avatar/avatar-123456"
-            // Nós limpamos a string para ficar apenas com os números finais
-            const numericId = idResponse.data.id.replace('http://api.imvu.com/avatar/avatar-', '');
+            let userTagline = "";
 
-            // 2. Com o ID Numérico em mãos, buscamos o Perfil real para ler a Bio (Tagline)
-            const profileResponse = await axios.get(`https://api.imvu.com/profile/profile-user-${numericId}`);
+            // 3. Como a chave do usuário muda (ex: "https://api.imvu.com/user/user-378261321"),
+            // nós iteramos pelas chaves até encontrar os "data" que contêm a tagline.
+            for (const key in denormalized) {
+                if (denormalized[key]?.data?.tagline !== undefined) {
+                    userTagline = denormalized[key].data.tagline;
+                    break; // Achou a tagline, para a busca
+                }
+            }
             
-            // Garantia de segurança caso o objeto denormalized venha vazio
-            const denormalized = profileResponse.data.denormalized || {};
-            const avatarData = Object.values(denormalized).find((item: any) => item?.data?.tagline !== undefined) as any;
-            
+            // 4. Devolve o sucesso para o Painel Web
             res.writeHead(200);
             return res.end(JSON.stringify({ 
                 username: username, 
-                tagline: avatarData?.data?.tagline || "" 
+                tagline: userTagline 
             }));
+            
         } catch (error) {
             res.writeHead(500);
-            return res.end(JSON.stringify({ error: "Usuário não encontrado ou erro na API do IMVU." }));
+            return res.end(JSON.stringify({ error: "Erro de comunicação com a API do IMVU." }));
         }
     }
 

@@ -52,8 +52,25 @@ http.createServer(async (req, res) => {
         }
 
         try {
-            const response = await axios.get(`https://api.imvu.com/profile/profile-user-${username}`);
-            const avatarData = Object.values(response.data.denormalized).find((item: any) => item?.data?.tagline !== undefined) as any;
+            // 1. Converte o Nickname (ex: ipsd) para o ID Numérico oficial do IMVU
+            const idResponse = await axios.get(`https://api.imvu.com/avatar/avatarname-${username}`);
+            
+            // Se o IMVU retornar falha (ex: nick não existe), cortamos a operação aqui
+            if (idResponse.data.status !== 'success' || !idResponse.data.id) {
+                res.writeHead(404);
+                return res.end(JSON.stringify({ error: "Avatar não encontrado" }));
+            }
+
+            // O IMVU devolve o ID no formato HATEOAS: "http://api.imvu.com/avatar/avatar-123456"
+            // Nós limpamos a string para ficar apenas com os números finais
+            const numericId = idResponse.data.id.replace('http://api.imvu.com/avatar/avatar-', '');
+
+            // 2. Com o ID Numérico em mãos, buscamos o Perfil real para ler a Bio (Tagline)
+            const profileResponse = await axios.get(`https://api.imvu.com/profile/profile-user-${numericId}`);
+            
+            // Garantia de segurança caso o objeto denormalized venha vazio
+            const denormalized = profileResponse.data.denormalized || {};
+            const avatarData = Object.values(denormalized).find((item: any) => item?.data?.tagline !== undefined) as any;
             
             res.writeHead(200);
             return res.end(JSON.stringify({ 

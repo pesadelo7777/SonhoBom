@@ -7,14 +7,9 @@ import { CONFIG, ClienteConfig } from '../config';
 import { b64Encode, b64Decode, Color } from '../utils/helpers';
 import { CommandHandler } from '../commands/CommandHandler';
 import { geminiService } from '../services/GeminiService';
+import { createClient } from '@supabase/supabase-js'; 
 
 export class RoomInstance {
-
-    // --- 🏦 MEMÓRIA FINANCEIRA MATEMÁTICA ---
-    public lastCredits: number = -1;
-    public pendingCreditAmount: number = 0;
-    public pendingSenderId: string = '';
-    public pendingCreditTimer: any = null;
     public cliente: ClienteConfig; 
     public roomId: string;
     
@@ -41,6 +36,12 @@ export class RoomInstance {
     public ultimaVezQueAIsisFalou: number = 0;
     public tempoDeEntrada: number = Date.now();
 
+    // --- 🏦 MEMÓRIA FINANCEIRA MATEMÁTICA ---
+    public lastCredits: number = -1;
+    public pendingCreditAmount: number = 0;
+    public pendingSenderId: string = '';
+    public pendingCreditTimer: any = null;
+
     // Substitua a linha antiga de afinidades por esta:
     public perfisUsuario = new Map<string, { pontos: number, fofoca: string }>();
 
@@ -50,7 +51,7 @@ export class RoomInstance {
     
     private conexaoEncerradaPropositalmente: boolean = false;
     private commandHandler = new CommandHandler();
-    private tentandoVoltar: boolean = false; // <-- NOVA VARIÁVEL DE CONTROLE
+    private tentandoVoltar: boolean = false; 
     
     // As 3 funções de Callback
     public onLeaveRoom?: (intencional: boolean) => void;
@@ -64,8 +65,6 @@ export class RoomInstance {
     private nameToIdCache: Map<string, string> = new Map(); 
     public userSeats: Map<string, { node: string, furniId: string }> = new Map(); 
 
-
-    // O CONTRATO ATUALIZADO: Agora ele aceita o verificarColisao como 8º parâmetro
     constructor(
         cliente: ClienteConfig, 
         osid: string, 
@@ -85,7 +84,7 @@ export class RoomInstance {
         
         this.onLeaveRoom = onLeaveRoom; 
         this.onMoveRoom = onMoveRoom;
-        this.verificarColisao = verificarColisao; // Associa a função recebida
+        this.verificarColisao = verificarColisao; 
         
         this.isInitializing = true;
 
@@ -103,7 +102,6 @@ export class RoomInstance {
         if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
         this.userCache.set(String(CONFIG.AVATAR_ID), CONFIG.BOT_USER);
 
-        // CIRURGIA: Puxa a memória do disco assim que o bot liga
         mongoManager.carregarPerfis(this.cliente.id).then(mapa => {
             this.perfisUsuario = mapa;
             console.log(`${Color.Green}[+] Memória de Perfis e Fofocas sincronizada!${Color.Reset}`);
@@ -148,7 +146,7 @@ export class RoomInstance {
 
     public conectar() {
         this.conexaoEncerradaPropositalmente = false;
-        this.tempoDeEntrada = Date.now(); // CIRURGIA: Zera o cronômetro ao conectar
+        this.tempoDeEntrada = Date.now(); 
         console.log(`${Color.Yellow}[*] [Cliente: ${this.cliente.id} | Room-${this.roomId}] Estabelecendo túnel...${Color.Reset}`);
         
         this.ws = new WebSocket('wss://imq.imvu.com:444/streaming/imvu_pre', {
@@ -158,7 +156,6 @@ export class RoomInstance {
 
         setTimeout(() => {
             this.isInitializing = false;
-            // Passa o cliente para a IA saber qual persona usar
             geminiService.chegarNaSala(this.cliente).then((fraseDeChegada) => {
                 this.commandHandler.processarIA(fraseDeChegada, this, CONFIG.BOT_USER);
             });
@@ -186,11 +183,9 @@ export class RoomInstance {
                         const nome = await this.obterNomeUsuario(joinedId);
                         console.log(`${Color.Green}[+] @${nome} entrou na sala do cliente [${this.cliente.id}].${Color.Reset}`);
         
-                        // CIRURGIA: A trava temporal de 20 segundos que barra os "fantasmas"
                         const tempoNaSala = Date.now() - this.tempoDeEntrada;
         
                         if (tempoNaSala > 20000) {
-                            // Limpa o nome na hora de buscar para garantir que "Guest_Valmont" puxe a fofoca de "valmont"
                             const nomeBase = nome.toLowerCase().replace(/^guest_/, '');
                             const memoria = this.perfisUsuario.get(nomeBase) || this.perfisUsuario.get(nome.toLowerCase()); 
                             
@@ -238,24 +233,20 @@ export class RoomInstance {
                         else if (parts.length === 5) { userId = parts[2]; node = parts[3]; furniId = parts[4]; }
                         
                         if (userId && node && furniId) {
-                            // CIRURGIA: Ela ignora a própria ID para não bugar o rastreio
                             if (userId !== String(CONFIG.AVATAR_ID)) {
                                 this.userSeats.set(userId, { node: node, furniId: furniId });
                                 this.knownValidSeats.add(`${node}|${furniId}`);
-                               //  console.log(`\x1b[36m[Radar de Poses] @${userId} mapeado no nó ${node} (Móvel: ${furniId})\x1b[0m`);
                             }
                         }
                     }
 
                     const textoPuro = this.extrairTextoDaMensagem(decodedMsg);
                     if (textoPuro) {
-                        // CIRURGIA TÉDIO: Alguém falou! Zera o relógio de inatividade da sala.
                         this.ultimaAtividadeChat = Date.now();
 
                         const senderName = await this.obterNomeUsuario(senderIdLimpo);
                         const tagSala = `${this.cliente.id} (${this.participantCount})`;
 
-                        // CIRURGIA: Grava a fala no histórico (Mantém só as últimas 20)
                         this.historicoChat.push(`${senderName}: ${textoPuro}`);
                         if (this.historicoChat.length > 13) this.historicoChat.shift();
 
@@ -267,11 +258,10 @@ export class RoomInstance {
                         }
 
                         // ==========================================
-                        // 🏦 GATILHO FINANCEIRO MATEMÁTICO (SEM HTTP E SEM ERRO 400)
+                        // 🏦 GATILHO FINANCEIRO MATEMÁTICO
                         // ==========================================
                         if (senderName === 'User-admin') {
                             
-                            // 1. Calcula quanto dinheiro chegou
                             if (textoPuro.startsWith('updateCreditBalances')) {
                                 try {
                                     const obj = JSON.parse(textoPuro.replace('updateCreditBalances', '').trim());
@@ -289,7 +279,6 @@ export class RoomInstance {
                                 } catch(e) {}
                             }
                             
-                            // 2. Registra quem mandou a mensagem
                             if (textoPuro.startsWith('messageReceived')) {
                                 try {
                                     const obj = JSON.parse(textoPuro.replace('messageReceived', '').trim());
@@ -297,21 +286,17 @@ export class RoomInstance {
                                 } catch(e) {}
                             }
 
-                            // 3. Cruzamento de Dados: Se temos saldo novo e temos o remetente, injeta no Site!
                             if (this.pendingCreditAmount > 0 && this.pendingSenderId) {
                                 const creditosRecebidos = this.pendingCreditAmount;
                                 const senderId = this.pendingSenderId;
                                 
-                                // Limpa a memória para o próximo pagamento imediatamente
                                 this.pendingCreditAmount = 0;
                                 this.pendingSenderId = '';
                                 if (this.pendingCreditTimer) clearTimeout(this.pendingCreditTimer);
 
-                                // Busca o nome e processa
                                 const nickPagador = (await this.obterNomeUsuario(senderId)).toLowerCase();
                                 console.log(`${Color.Green}[PAGAMENTO NATIVO] ${creditosRecebidos} Créditos confirmados de @${nickPagador}${Color.Reset}`);
                                 
-                                const { createClient } = require('@supabase/supabase-js');
                                 const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
                                 
                                 const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
@@ -333,7 +318,6 @@ export class RoomInstance {
                                 }
                                 
                             } else if (this.pendingCreditAmount > 0 || this.pendingSenderId) {
-                                // Se os pacotes caírem separados, dá 10 segundos para o próximo chegar antes de esquecer
                                 if (this.pendingCreditTimer) clearTimeout(this.pendingCreditTimer);
                                 this.pendingCreditTimer = setTimeout(() => {
                                     this.pendingCreditAmount = 0;
@@ -341,14 +325,13 @@ export class RoomInstance {
                                 }, 10000);
                             }
 
-                            // Interrompe aqui para não mandar pro Gemini e gerar respostas confusas
                             return; 
                         }
                         
                         this.commandHandler.processar(textoPuro, senderName, senderIdLimpo, this);
                     }
-                
-            } catch (e) {}
+                }
+            } catch (e) {} // <-- AS CHAVES FALTANTES QUE CAUSARAM O ERRO FORAM REPOSTAS AQUI
         });
 
         this.ws.on('close', (code: number) => {
@@ -358,7 +341,6 @@ export class RoomInstance {
                 if (this.onLeaveRoom) this.onLeaveRoom(true); 
             } else {
                 console.log(`${Color.Red}[!] [${this.cliente.id}] Queda Inesperada (Cod: ${code})! Iniciando resgate...${Color.Reset}`);
-                // CIRURGIA: Em vez de desistir, aciona o loop de desconexão
                 this.forcarRetornoBase('desconexao'); 
             }
         });
@@ -367,7 +349,6 @@ export class RoomInstance {
 
     private async processarEntradaFisica() {
         try {
-            // Tenta colocar o corpo na sala. Aqui é onde a API avisa se estamos expulsos ou se a sala tá cheia.
             await axios.post(`https://api.imvu.com/chat/chat-${this.roomId}/participants`, {}, { headers: this.postHeaders });
             
             try { await axios.post(`https://api.imvu.com/scene/scene-${this.roomId}/participants`, {}, { headers: this.postHeaders }); } catch {}
@@ -396,14 +377,10 @@ export class RoomInstance {
             this.ws.send(JSON.stringify({ queues_with_results: assinaturas, record: "msg_c2g_subscribe" }));
             
         } catch (error: any) {
-            // CIRURGIA: Interceptador de Bloqueios da API
             const statusCode = error.response?.status;
-            
             if (statusCode === 401 || statusCode === 403) {
-                // 401/403 = Access Denied (Banido da sala, expulso ou restrito)
                 this.forcarRetornoBase('expulso');
             } else {
-                // Outros erros (geralmente 400 ou 409) indicam Room Full (Sala Cheia)
                 this.forcarRetornoBase('cheia');
             }
         }
@@ -449,12 +426,8 @@ export class RoomInstance {
         const nodeNum = parseInt(node);
         const furniIdStr = String(furniId);
 
-        // console.log(`\x1b[36m[Motor Físico] Tentando mover para Nó: ${nodeNum} | Móvel: ${furniIdStr}\x1b[0m`);
-
-        // 1. Comando Legado (IMVU Classic)
         this.enviarMensagemOculta(`*msg SeatAssignment 1 ${avatarIdNum} ${nodeNum} ${furniIdStr}`);
         
-        // 2. Persistência na API (O "Pulo do Gato": o Next prioriza a API para móveis)
         try {
             await axios.post(`https://api.imvu.com/chat/chat-${this.roomId}/participants/user-${avatarIdNum}`, { 
                 seat_furni_id: furniIdStr, 
@@ -474,23 +447,17 @@ export class RoomInstance {
             } catch {}
         }, 45000); 
 
-        // CIRURGIA TÉDIO E INQUIETAÇÃO FÍSICA
         this.intervaloDeTedio = setInterval(async () => {
             if (!this.iaAtiva || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
             const tempoSemFalar = Date.now() - this.ultimaAtividadeChat;
-            const LIMITE_TEDIO = 7 * 60 * 1000; // 5 minutos (altere para 1 * 60 * 1000 para testar rápido)
+            const LIMITE_TEDIO = 7 * 60 * 1000; 
 
-            // Se a sala morreu de tédio
             if (tempoSemFalar >= LIMITE_TEDIO && this.participantCount > 0) {
-                
-                // 1. INQUIETAÇÃO ESPACIAL: Ela muda de cadeira sozinha
                 if (this.knownValidSeats && this.knownValidSeats.size > 0) {
                     const cadeiras = Array.from(this.knownValidSeats);
-                    // Escolhe um node/assento aleatório que ela já mapeou na sala
                     const cadeiraAleatoria = cadeiras[Math.floor(Math.random() * cadeiras.length)];
                     
-                    // Dispara o payload nativo do IMVU para mover o avatar
                     this.ws.send(JSON.stringify({
                         record: 'msg_c2g_room_move',
                         node_id: cadeiraAleatoria
@@ -498,7 +465,6 @@ export class RoomInstance {
                     console.log(`\x1b[35m[*] Inquietação Física: Isis levantou e mudou para o assento ${cadeiraAleatoria}\x1b[0m`);
                 }
 
-                // 2. TÉDIO VERBAL: Ela puxa assunto no chat
                 const nomesPresentes = [];
                 for (const id of Array.from(this.currentParticipants).slice(0, 5)) {
                     nomesPresentes.push(await this.obterNomeUsuario(id));
@@ -513,27 +479,22 @@ export class RoomInstance {
                     this.commandHandler.processarIA(resposta, this, "Consciencia");
                 });
             }
-        }, 60000); // O motor avalia o tédio a cada 1 minuto
+        }, 60000); 
     }
 
     private limparIntervalos() {
         if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
         if (this.httpPresenceInterval) clearInterval(this.httpPresenceInterval);
-        if (this.intervaloDeTedio) clearInterval(this.intervaloDeTedio); // Limpa o tédio ao sair
+        if (this.intervaloDeTedio) clearInterval(this.intervaloDeTedio); 
     }
 
-
-    // ==========================================
-    // 🛡️ MOTOR DE RESILIÊNCIA (AUTO-REJOIN)
-    // ==========================================
     public async forcarRetornoBase(motivo: 'expulso' | 'cheia' | 'desconexao') {
-        if (this.tentandoVoltar) return; // Evita loop duplo
+        if (this.tentandoVoltar) return; 
         this.tentandoVoltar = true;
         
-        // Puxa a sala oficial do cliente configurada no seu JSON
         const salaAlvo = this.cliente.salaBase; 
 
-        let tempoEsperaMs = 60000; // Padrão: 1 minuto
+        let tempoEsperaMs = 60000; 
         if (motivo === 'expulso') {
             console.log(`${Color.Yellow}[!] [${this.cliente.id}] Fomos expulsos ou bloqueados da sala. Cooldown de 20 mins ativado...${Color.Reset}`);
             tempoEsperaMs = 20 * 60 * 1000;
@@ -543,19 +504,16 @@ export class RoomInstance {
             console.log(`${Color.Yellow}[!] [${this.cliente.id}] Queda de rede detectada. Reconectando em 1 min...${Color.Reset}`);
         }
 
-        // Corta a conexão atual para o bot não ficar como "zumbi" no servidor
         if (this.ws) {
             this.ws.removeAllListeners();
             this.ws.close();
             this.limparIntervalos();
         }
 
-        // O Despertador
         setTimeout(() => {
             console.log(`${Color.Cyan}[*] [${this.cliente.id}] Acordando do Auto-Rejoin. Retornando para a base: ${salaAlvo}...${Color.Reset}`);
             this.tentandoVoltar = false;
             
-            // Avisa o BotManager para criar uma nova instância limpa apontando para a base
             if (this.onMoveRoom) {
                 this.onMoveRoom(salaAlvo); 
             }
@@ -565,14 +523,12 @@ export class RoomInstance {
     public async desconectar() {
         this.conexaoEncerradaPropositalmente = true;
         
-        // 1. O CORPO: Retira fisicamente o avatar 3D da sala
         try {
             const leaveUrl = `https://api.imvu.com/chat/chat-${this.roomId}/participants/user-${CONFIG.AVATAR_ID}`;
             await axios.delete(leaveUrl, { headers: this.postHeaders });
             console.log(`${Color.Yellow}[-] Corpo 3D removido da sala ${this.roomId}.${Color.Reset}`);
         } catch (e) {}
 
-        // 2. A MENTE: Fecha o túnel de chat e limpa a memória
         if (this.ws) {
             this.ws.removeAllListeners();
             this.ws.close();

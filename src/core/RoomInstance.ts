@@ -304,15 +304,18 @@ export class RoomInstance {
                                 if (userData) {
                                     if (creditosRecebidos === 20000) {
                                         await supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
+                                        console.log(`${Color.Green}[SISTEMA] VIP 15 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else if (creditosRecebidos === 35000) {
                                         await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
+                                        console.log(`${Color.Green}[SISTEMA] VIP 30 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else {
-                                        const moedas = Math.floor(creditosRecebidos / 200);
-                                        if (moedas > 0) {
-                                            await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
-                                        }
+                                        // A CIRURGIA DO TESTE: Se arredondar pra 0, força a ser 1 para destravar o painel
+                                        let moedas = Math.floor(creditosRecebidos / 200);
+                                        if (moedas === 0 && creditosRecebidos > 0) moedas = 1; 
+
+                                        await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
+                                        console.log(`${Color.Green}[SISTEMA] Site atualizado! ${moedas} moedas liberadas para @${nickPagador}${Color.Reset}`);
                                     }
-                                    console.log(`${Color.Green}[SISTEMA] Site atualizado! Moedas liberadas para @${nickPagador}${Color.Reset}`);
                                 } else {
                                     console.log(`${Color.Red}[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!${Color.Reset}`);
                                 }
@@ -374,6 +377,10 @@ export class RoomInstance {
             if (chatQ) assinaturas.push({ record: "subscription", name: chatQ, op_id: this.gerarOpId() });
             if (roomQ) assinaturas.push({ record: "subscription", name: roomQ, op_id: this.gerarOpId() });
             if (sceneQ) assinaturas.push({ record: "subscription", name: sceneQ, op_id: this.gerarOpId() });
+            
+            // 🏦 CIRURGIA: Assina a carteira para FORÇAR o IMVU a mandar o saldo inicial antes de qualquer pagamento!
+            assinaturas.push({ record: "subscription", name: `inv:/wallet/wallet-${CONFIG.AVATAR_ID}`, op_id: this.gerarOpId() });
+
             this.ws.send(JSON.stringify({ queues_with_results: assinaturas, record: "msg_c2g_subscribe" }));
             
         } catch (error: any) {

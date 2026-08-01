@@ -339,14 +339,17 @@ export class RoomInstance {
                                         await supabase.from('profiles').update({ plano: 'VIP 30 Dias', vip_vencimento: venc.toISOString() }).eq('id', userData.id);
                                         console.log(`${Color.Green}[SISTEMA] VIP 30 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else {
+                                        // MATEMÁTICA REAL E BLINDADA
                                         let moedas = Math.floor(creditosRecebidos / 200);
-                                        if (moedas === 0 && creditosRecebidos > 0) moedas = 1; 
-
-                                        await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
-                                        console.log(`${Color.Green}[SISTEMA] Site atualizado! ${moedas} moedas liberadas para @${nickPagador}${Color.Reset}`);
+                                        
+                                        if (moedas >= 1) {
+                                            await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
+                                            console.log(`${Color.Green}[SISTEMA] Site atualizado! ${moedas} moedas liberadas para @${nickPagador}${Color.Reset}`);
+                                        } else {
+                                            // ANTIFRAUDE: Tentativa de pagar menos de 200 créditos
+                                            console.log(`${Color.Yellow}[ALERTA FRAUDE] @${nickPagador} enviou apenas ${creditosRecebidos} créditos. Mínimo exigido: 200. Nenhuma moeda gerada.${Color.Reset}`);
+                                        }
                                     }
-                                } else {
-                                    console.log(`${Color.Red}[ALERTA] @${nickPagador} pagou, mas não foi encontrado no banco (ou bloqueado por permissão)!${Color.Reset}`);
                                 }
                                 
                             } else if (this.pendingCreditAmount > 0 || this.pendingSenderId) {

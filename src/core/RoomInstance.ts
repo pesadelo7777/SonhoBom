@@ -331,10 +331,12 @@ export class RoomInstance {
 
                                 if (userData) {
                                     if (creditosRecebidos === 20000) {
-                                        await supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
+                                        const venc = new Date(); venc.setDate(venc.getDate() + 15);
+                                        await supabase.from('profiles').update({ plano: 'VIP 15 Dias', vip_vencimento: venc.toISOString() }).eq('id', userData.id);
                                         console.log(`${Color.Green}[SISTEMA] VIP 15 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else if (creditosRecebidos === 35000) {
-                                        await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
+                                        const venc = new Date(); venc.setDate(venc.getDate() + 30);
+                                        await supabase.from('profiles').update({ plano: 'VIP 30 Dias', vip_vencimento: venc.toISOString() }).eq('id', userData.id);
                                         console.log(`${Color.Green}[SISTEMA] VIP 30 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else {
                                         let moedas = Math.floor(creditosRecebidos / 200);

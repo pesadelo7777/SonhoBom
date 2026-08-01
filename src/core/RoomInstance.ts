@@ -83,8 +83,12 @@ export class RoomInstance {
         
         this.isInitializing = true;
 
+        let cookieLimpo = '';
+        if (this.osid) cookieLimpo += `osid=${this.osid}; `;
+        if (this.osCsid) cookieLimpo += `osCsid=${this.osCsid};`;
+
         this.postHeaders = {
-            'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`,
+            'Cookie': cookieLimpo.trim(),
             'X-Imvu-Application': 'next_desktop/1',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'Origin': 'https://www.imvu.com',
@@ -264,11 +268,10 @@ export class RoomInstance {
                 // 🏦 INJEÇÃO: DETECTOR DE CARTEIRA NA SALA
                 // ==========================================
                 if (msg.record === 'updateCreditBalances' || msg.record === 'messageReceived' || msg.record === 'private_invalidation') {
-                    console.log(`${Color.Cyan}[FINANCEIRO - SALA] Evento detectado na rede (${msg.record})! Acionando radar mestre em 3s...${Color.Reset}`);
+                    console.log(`${Color.Cyan}[FINANCEIRO - SALA] Evento detectado! Lendo caixa de entrada em 3s...${Color.Reset}`);
                     
                     setTimeout(async () => {
                         try {
-                            // Chama o axios diretamente, ele já existe no topo do arquivo!
                             const msgRes = await axios.get('https://api.imvu.com/message/message', {
                                 headers: this.postHeaders,
                                 params: { limit: 5 }
@@ -290,12 +293,14 @@ export class RoomInstance {
                                             const creditos = parseInt(valorMatch[1].replace(/[.,]/g, ''));
                                             const nickPagador = remetenteMatch[1].toLowerCase();
 
-                                            console.log(`\x1b[32m[PAGAMENTO DIRETO] ${creditos} Créditos de @${nickPagador}\x1b[0m`);
+                                            console.log(`\x1b[32m[PAGAMENTO LIDO] ${creditos} Créditos de @${nickPagador}\x1b[0m`);
 
                                             await axios.post(`https://api.imvu.com/message/message-${msgInbox.id}`, { unread: false }, { headers: this.postHeaders });
 
-                                            // Re-cria a instância local do banco
-                                            const supabase = require('@supabase/supabase-js').createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+                                            // Instancia o banco localmente para injetar a moeda no site
+                                            const { createClient } = require('@supabase/supabase-js');
+                                            const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+                                            
                                             const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
 
                                             if (userData) {
@@ -309,16 +314,17 @@ export class RoomInstance {
                                                         await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
                                                     }
                                                 }
-                                                console.log(`\x1b[32m[SISTEMA - SALA] Conta de @${nickPagador} carregada!\x1b[0m`);
+                                                console.log(`\x1b[32m[SISTEMA - SALA] Conta de @${nickPagador} carregada com sucesso no Site!\x1b[0m`);
                                             } else {
-                                                console.log(`\x1b[31m[ALERTA] @${nickPagador} pagou, mas não tem conta LifeVU!\x1b[0m`);
+                                                console.log(`\x1b[31m[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!\x1b[0m`);
                                             }
                                         }
                                     }
                                 }
                             }
-                        } catch (err) {
-                            // Silencia erro para não quebrar a sala
+                        } catch (err: any) {
+                            // Se a API do IMVU travar a leitura, agora nós vamos saber exatamente o porquê!
+                            console.log(`\x1b[31m[ERRO FINANCEIRO - SALA] Falha ao ler o valor recebido: ${err.message}\x1b[0m`);
                         }
                     }, 3000);
                 }

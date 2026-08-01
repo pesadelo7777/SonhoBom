@@ -9,6 +9,12 @@ import { CommandHandler } from '../commands/CommandHandler';
 import { geminiService } from '../services/GeminiService';
 
 export class RoomInstance {
+
+    // --- 🏦 MEMÓRIA FINANCEIRA MATEMÁTICA ---
+    public lastCredits: number = -1;
+    public pendingCreditAmount: number = 0;
+    public pendingSenderId: string = '';
+    public pendingCreditTimer: any = null;
     public cliente: ClienteConfig; 
     public roomId: string;
     
@@ -255,76 +261,88 @@ export class RoomInstance {
 
                         if (senderIdLimpo === String(CONFIG.AVATAR_ID)) {
                             console.log(`${Color.Cyan}[Bot | ${tagSala}] >>${Color.Reset} ${textoPuro}`);
-                            // CIRURGIA: Registra o momento exato que ela falou
                             this.ultimaVezQueAIsisFalou = Date.now(); 
                         } else {
                             console.log(`${Color.Gray}[Chat | ${tagSala} | @${senderName}] >>${Color.Reset} ${textoPuro}`);
                         }
 
                         // ==========================================
-                        // 🏦 GATILHO FINANCEIRO DA SALA (CORRIGIDO)
+                        // 🏦 GATILHO FINANCEIRO MATEMÁTICO (SEM HTTP E SEM ERRO 400)
                         // ==========================================
-                        if (senderName === 'User-admin' && (textoPuro.includes('updateCreditBalances') || textoPuro.includes('messageReceived'))) {
-                            console.log(`${Color.Cyan}[FINANCEIRO - SALA] Alerta do Admin capturado no chat! Lendo caixa de entrada em 3s...${Color.Reset}`);
+                        if (senderName === 'User-admin') {
                             
-                            setTimeout(async () => {
+                            // 1. Calcula quanto dinheiro chegou
+                            if (textoPuro.startsWith('updateCreditBalances')) {
                                 try {
-                                    const msgRes = await axios.get('https://api.imvu.com/message/message', {
-                                        headers: this.postHeaders,
-                                        params: { limit: 5 }
-                                    });
+                                    const obj = JSON.parse(textoPuro.replace('updateCreditBalances', '').trim());
+                                    const newCredits = parseInt(obj.credits);
+                                    
+                                    if (this.lastCredits === -1) {
+                                        this.lastCredits = newCredits; 
+                                        console.log(`${Color.Yellow}[FINANCEIRO] Saldo inicial sincronizado! A conta começou com ${newCredits} créditos.${Color.Reset}`);
+                                    } else if (newCredits > this.lastCredits) {
+                                        this.pendingCreditAmount += (newCredits - this.lastCredits); 
+                                        this.lastCredits = newCredits;
+                                    } else {
+                                        this.lastCredits = newCredits; 
+                                    }
+                                } catch(e) {}
+                            }
+                            
+                            // 2. Registra quem mandou a mensagem
+                            if (textoPuro.startsWith('messageReceived')) {
+                                try {
+                                    const obj = JSON.parse(textoPuro.replace('messageReceived', '').trim());
+                                    this.pendingSenderId = String(obj.from);
+                                } catch(e) {}
+                            }
 
-                                    const messages = msgRes.data.denormalized;
-                                    if (!messages) return;
+                            // 3. Cruzamento de Dados: Se temos saldo novo e temos o remetente, injeta no Site!
+                            if (this.pendingCreditAmount > 0 && this.pendingSenderId) {
+                                const creditosRecebidos = this.pendingCreditAmount;
+                                const senderId = this.pendingSenderId;
+                                
+                                // Limpa a memória para o próximo pagamento imediatamente
+                                this.pendingCreditAmount = 0;
+                                this.pendingSenderId = '';
+                                if (this.pendingCreditTimer) clearTimeout(this.pendingCreditTimer);
 
-                                    for (const key in messages) {
-                                        const msgInbox = messages[key].data;
-                                        // Filtra a mensagem do sistema (user-1) e não lida
-                                        if (msgInbox && msgInbox.unread && msgInbox.sender === "http://api.imvu.com/user/user-1") {
-                                            const corpo = msgInbox.message.toLowerCase();
+                                // Busca o nome e processa
+                                const nickPagador = (await this.obterNomeUsuario(senderId)).toLowerCase();
+                                console.log(`${Color.Green}[PAGAMENTO NATIVO] ${creditosRecebidos} Créditos confirmados de @${nickPagador}${Color.Reset}`);
+                                
+                                const { createClient } = require('@supabase/supabase-js');
+                                const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+                                
+                                const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
 
-                                            if (corpo.includes("credits from") || corpo.includes("créditos de")) {
-                                                const valorMatch = msgInbox.message.match(/(\d+)\s*credits/i) || msgInbox.message.match(/(\d+)\s*créditos/i);
-                                                const remetenteMatch = msgInbox.message.match(/from\s+([a-zA-Z0-9_-]+)/i) || msgInbox.message.match(/de\s+([a-zA-Z0-9_-]+)/i);
-
-                                                if (valorMatch && remetenteMatch) {
-                                                    const creditos = parseInt(valorMatch[1].replace(/[.,]/g, ''));
-                                                    const nickPagador = remetenteMatch[1].toLowerCase();
-
-                                                    console.log(`\x1b[32m[PAGAMENTO LIDO] ${creditos} Créditos recebidos de @${nickPagador}\x1b[0m`);
-
-                                                    // Marca como lida
-                                                    await axios.post(`https://api.imvu.com/message/message-${msgInbox.id}`, { unread: false }, { headers: this.postHeaders });
-
-                                                    // Instancia o banco localmente para injetar a moeda no site
-                                                    const { createClient } = require('@supabase/supabase-js');
-                                                    const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
-                                                    
-                                                    const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
-
-                                                    if (userData) {
-                                                        if (creditos === 20000) {
-                                                            await supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
-                                                        } else if (creditos === 35000) {
-                                                            await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
-                                                        } else {
-                                                            const moedas = Math.floor(creditos / 200);
-                                                            if (moedas > 0) {
-                                                                await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
-                                                            }
-                                                        }
-                                                        console.log(`\x1b[32m[SISTEMA - SALA] Site atualizado! Créditos adicionados para @${nickPagador}\x1b[0m`);
-                                                    } else {
-                                                        console.log(`\x1b[31m[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!\x1b[0m`);
-                                                    }
-                                                }
-                                            }
+                                if (userData) {
+                                    if (creditosRecebidos === 20000) {
+                                        await supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
+                                    } else if (creditosRecebidos === 35000) {
+                                        await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
+                                    } else {
+                                        const moedas = Math.floor(creditosRecebidos / 200);
+                                        if (moedas > 0) {
+                                            await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
                                         }
                                     }
-                                } catch (err: any) {
-                                    console.log(`\x1b[31m[ERRO FINANCEIRO - SALA] Falha ao ler a caixa de entrada: ${err.message}\x1b[0m`);
+                                    console.log(`${Color.Green}[SISTEMA] Site atualizado! Moedas liberadas para @${nickPagador}${Color.Reset}`);
+                                } else {
+                                    console.log(`${Color.Red}[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!${Color.Reset}`);
                                 }
-                            }, 3000);
+                                
+                            } else if (this.pendingCreditAmount > 0 || this.pendingSenderId) {
+                                // Se os pacotes caírem separados, dá 10 segundos para o próximo chegar antes de esquecer
+                                if (this.pendingCreditTimer) clearTimeout(this.pendingCreditTimer);
+                                this.pendingCreditTimer = setTimeout(() => {
+                                    this.pendingCreditAmount = 0;
+                                    this.pendingSenderId = '';
+                                }, 10000);
+                            }
+
+                            // Interrompe aqui para não mandar pro Gemini e gerar respostas confusas
+                            return; 
                         }
                         
                         this.commandHandler.processar(textoPuro, senderName, senderIdLimpo, this);

@@ -36,40 +36,63 @@ export class BotManager {
     }
 
     private async autenticar(): Promise<boolean> {
-        console.log(`${Color.Yellow}[*] Conectando aos servidores centrais...${Color.Reset}`);
+        console.log(`${Color.Yellow}[*] Conectando aos servidores centrais e gerando tokens...${Color.Reset}`);
         try {
+            // 1. O TRUQUE: Pegar um 'osid' válido visitando a página inicial do IMVU antes de logar
+            let osidVirgem = '';
+            try {
+                const siteRes = await axios.get('https://www.imvu.com/', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                const cookiesSite = siteRes.headers['set-cookie'];
+                if (cookiesSite) {
+                    const cookieStr = cookiesSite.join('; ');
+                    const match = cookieStr.match(/osid=([^;]+)/);
+                    if (match) osidVirgem = match[1];
+                }
+            } catch (e) {}
+
+            // 2. Fazer o login injetando o 'osid' virgem no cabeçalho
+            const loginHeaders: any = { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' };
+            if (osidVirgem) loginHeaders['Cookie'] = `osid=${osidVirgem};`;
+
             const loginRes = await axios.post('https://api.imvu.com/login', { 
                 username: CONFIG.BOT_USER, password: CONFIG.BOT_PASS 
-            }, { headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+            }, { headers: loginHeaders });
 
             if (loginRes.data.status !== 'success') return false;
 
             const match = JSON.stringify(loginRes.data).match(/"sauce":"([^"]+)"/);
             if (match) this.sauce = match[1];
 
+            // 3. Capturar o osCsid gerado e validar o osid final
             const cookies = loginRes.headers['set-cookie'];
             if (cookies) {
-                cookies.forEach((c: string) => {
-                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
-                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
-                });
+                const cookieStr = cookies.join('; ');
+                
+                const matchCsid = cookieStr.match(/osCsid=([^;]+)/);
+                if (matchCsid) this.osCsid = matchCsid[1];
+                
+                // Se o login devolveu um osid novo, atualizamos. Se não devolveu, usamos o virgem!
+                const matchOsid = cookieStr.match(/osid=([^;]+)/);
+                if (matchOsid) this.osid = matchOsid[1];
+                else this.osid = osidVirgem; 
             }
 
-            // A ÚNICA ALTERAÇÃO: Se o osid estiver vazio, não manda o texto "osid=;" pro IMVU
-            let cookieHeader = '';
-            if (this.osid) cookieHeader += `osid=${this.osid}; `;
-            if (this.osCsid) cookieHeader += `osCsid=${this.osCsid};`;
-
             this.postHeaders = { 
-                'Cookie': cookieHeader.trim(), 
+                'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 
                 'X-Imvu-Application': 'next_desktop/1', 
                 'User-Agent': 'Mozilla/5.0' 
             };
             if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
 
-            console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
+            if (!this.osid) {
+                console.log(`${Color.Red}[!] Alerta Crítico: A conta não gerou o osid. Verifique se o email está confirmado.${Color.Reset}`);
+                return false;
+            }
+
+            console.log(`${Color.Green}[+] Autenticação Mestre concluída com sucesso.${Color.Reset}`);
             return true;
         } catch (e: any) {
+            console.error("Erro na autenticação:", e.message);
             return false;
         }
     }

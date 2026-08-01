@@ -149,6 +149,23 @@ export class RoomInstance {
         this.tempoDeEntrada = Date.now(); 
         console.log(`${Color.Yellow}[*] [Cliente: ${this.cliente.id} | Room-${this.roomId}] Estabelecendo túnel...${Color.Reset}`);
         
+        // ==========================================
+        // 🏦 CARREGA O SALDO REAL DA CONTA VIA API
+        // ==========================================
+        axios.get(`https://api.imvu.com/wallet/wallet-${CONFIG.AVATAR_ID}`, { headers: this.postHeaders })
+            .then(res => {
+                const wallet = res.data.denormalized[`https://api.imvu.com/wallet/wallet-${CONFIG.AVATAR_ID}`]?.data;
+                if (wallet && wallet.credits !== undefined) {
+                    this.lastCredits = parseInt(wallet.credits);
+                    console.log(`${Color.Green}[FINANCEIRO] Saldo real carregado via API: ${this.lastCredits} créditos.${Color.Reset}`);
+                } else {
+                    this.lastCredits = 0;
+                }
+            })
+            .catch(() => {
+                this.lastCredits = 0; // Se falhar, assume 0 para não engolir pagamentos
+            });
+
         this.ws = new WebSocket('wss://imq.imvu.com:444/streaming/imvu_pre', {
             headers: { 'Cookie': `osCsid=${this.osCsid};`, 'User-Agent': 'Mozilla/5.0' },
             rejectUnauthorized: false
@@ -258,7 +275,7 @@ export class RoomInstance {
                         }
 
                         // ==========================================
-                        // 🏦 GATILHO FINANCEIRO MATEMÁTICO
+                        // 🏦 GATILHO FINANCEIRO MATEMÁTICO BLINDADO
                         // ==========================================
                         if (senderName === 'User-admin') {
                             
@@ -267,15 +284,13 @@ export class RoomInstance {
                                     const obj = JSON.parse(textoPuro.replace('updateCreditBalances', '').trim());
                                     const newCredits = parseInt(obj.credits);
                                     
-                                    if (this.lastCredits === -1) {
-                                        this.lastCredits = newCredits; 
-                                        console.log(`${Color.Yellow}[FINANCEIRO] Saldo inicial sincronizado! A conta começou com ${newCredits} créditos.${Color.Reset}`);
-                                    } else if (newCredits > this.lastCredits) {
-                                        this.pendingCreditAmount += (newCredits - this.lastCredits); 
-                                        this.lastCredits = newCredits;
-                                    } else {
-                                        this.lastCredits = newCredits; 
+                                    // A CIRURGIA: Garante que nunca vai engolir pagamento achando que é "saldo inicial"
+                                    const base = this.lastCredits === -1 ? 0 : this.lastCredits;
+
+                                    if (newCredits > base) {
+                                        this.pendingCreditAmount += (newCredits - base); 
                                     }
+                                    this.lastCredits = newCredits;
                                 } catch(e) {}
                             }
                             
@@ -297,6 +312,7 @@ export class RoomInstance {
                                 const nickPagador = (await this.obterNomeUsuario(senderId)).toLowerCase();
                                 console.log(`${Color.Green}[PAGAMENTO NATIVO] ${creditosRecebidos} Créditos confirmados de @${nickPagador}${Color.Reset}`);
                                 
+                                const { createClient } = require('@supabase/supabase-js');
                                 const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
                                 
                                 const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
@@ -309,7 +325,7 @@ export class RoomInstance {
                                         await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
                                         console.log(`${Color.Green}[SISTEMA] VIP 30 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else {
-                                        // A CIRURGIA DO TESTE: Se arredondar pra 0, força a ser 1 para destravar o painel
+                                        // A CIRURGIA DO TESTE: Arredonda pra 1 moeda se for o teste de 100 pra destravar o painel
                                         let moedas = Math.floor(creditosRecebidos / 200);
                                         if (moedas === 0 && creditosRecebidos > 0) moedas = 1; 
 
@@ -334,7 +350,7 @@ export class RoomInstance {
                         this.commandHandler.processar(textoPuro, senderName, senderIdLimpo, this);
                     }
                 }
-            } catch (e) {} // <-- AS CHAVES FALTANTES QUE CAUSARAM O ERRO FORAM REPOSTAS AQUI
+            } catch (e) {}
         });
 
         this.ws.on('close', (code: number) => {

@@ -36,40 +36,60 @@ export class BotManager {
     }
 
     private async autenticar(): Promise<boolean> {
-        console.log(`${Color.Yellow}[*] Conectando aos servidores centrais...${Color.Reset}`);
+        console.log(`${Color.Yellow}[*] Conectando aos servidores centrais e gerando tokens...${Color.Reset}`);
         try {
+            // PASSO 1: Obter um osid virgem simulando o primeiro acesso de um navegador
+            const initRes = await axios.get('https://www.imvu.com/', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            let virginOsid = '';
+            
+            if (initRes.headers['set-cookie']) {
+                initRes.headers['set-cookie'].forEach(c => {
+                    if (c.includes('osid=')) virginOsid = c.split(';')[0].replace('osid=', '');
+                });
+            }
+
+            // PASSO 2: Fazer o login injetando o osid virgem para que ele seja autenticado
             const loginRes = await axios.post('https://api.imvu.com/login', { 
                 username: CONFIG.BOT_USER, password: CONFIG.BOT_PASS 
-            }, { headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+            }, { 
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'User-Agent': 'Mozilla/5.0',
+                    'Cookie': virginOsid ? `osid=${virginOsid};` : ''
+                } 
+            });
 
             if (loginRes.data.status !== 'success') return false;
 
             const match = JSON.stringify(loginRes.data).match(/"sauce":"([^"]+)"/);
             if (match) this.sauce = match[1];
 
-            const cookies = loginRes.headers['set-cookie'];
-            if (cookies) {
-                cookies.forEach((c: string) => {
-                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
-                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
+            // PASSO 3: Pega o osCsid gerado no momento do login
+            if (loginRes.headers['set-cookie']) {
+                loginRes.headers['set-cookie'].forEach((c: string) => {
+                    if (c.includes('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
                 });
             }
-
-            // A CIRURGIA DO ERRO 400: Monta o Cookie apenas com o que existe, removendo o "osid=;" que quebra a requisição.
-            let cookieHeader = '';
-            if (this.osid) cookieHeader += `osid=${this.osid}; `;
-            if (this.osCsid) cookieHeader += `osCsid=${this.osCsid};`;
+            
+            // O osid agora é o token válido e autenticado!
+            this.osid = virginOsid;
 
             this.postHeaders = { 
-                'Cookie': cookieHeader.trim(), 
+                'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 
                 'X-Imvu-Application': 'next_desktop/1', 
                 'User-Agent': 'Mozilla/5.0' 
             };
             if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
 
-            console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
+            if (!this.osid) {
+                console.log(`${Color.Red}[!] Alerta: O token osid não foi gerado pelo IMVU!${Color.Reset}`);
+                return false;
+            }
+
+            console.log(`${Color.Green}[+] Autenticação Mestre concluída (osid blindado).${Color.Reset}`);
             return true;
         } catch (e: any) {
+            console.error("Erro na autenticação mestre:", e.message);
             return false;
         }
     }

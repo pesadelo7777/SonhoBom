@@ -148,58 +148,81 @@ export class BotManager {
         }, atrasoMs);
     }
 
-    // ============================================================
+   // ============================================================
     // 🏦 MOTOR FINANCEIRO (ESCUTA DE SOCKET DA CARTEIRA)
     // ============================================================
     private iniciarRadarFinanceiro() {
+        const bot = this; // <-- ÂNCORA ABSOLUTA: O Node nunca mais vai perder o contexto
+
         console.log(`${Color.Yellow}[*] Inicializando Radar Financeiro (Socket da Carteira)...${Color.Reset}`);
 
         const ws = new WebSocket('wss://imq.imvu.com:444/streaming/imvu_pre', {
-            headers: { 'Cookie': `osCsid=${this.osCsid};`, 'User-Agent': 'Mozilla/5.0' },
+            headers: { 'Cookie': `osCsid=${bot.osCsid};`, 'User-Agent': 'Mozilla/5.0' },
             rejectUnauthorized: false
         });
 
+        let heartbeat: NodeJS.Timeout;
+
         ws.on('open', () => {
-            // Autentica o socket com a sessão mestre
-            ws.send(JSON.stringify({ record: "msg_c2g_connect", user_id: String(CONFIG.AVATAR_ID), cookie: Buffer.from(this.osCsid).toString('base64'), metadata: [], op_id: 1 }));
+            ws.send(JSON.stringify({ 
+                record: "msg_c2g_connect", 
+                user_id: String(CONFIG.AVATAR_ID), 
+                cookie: Buffer.from(bot.osCsid).toString('base64'), 
+                metadata: [], 
+                op_id: 1 
+            }));
+
+            // INJEÇÃO: Ping a cada 20s impede que o IMVU derrube o Radar
+            heartbeat = setInterval(() => {
+                if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify({ record: "msg_c2g_ping" })); 
+                }
+            }, 20000); 
         });
 
         ws.on('message', async (raw: any) => {
             try {
                 const msg = JSON.parse(raw.toString());
                 
-                if (msg.record === 'msg_g2c_ping') {
-                    ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
+                // Ignora apenas os pings e pongs de manutenção de rede
+                if (!msg.record || msg.record === 'msg_g2c_ping' || msg.record === 'msg_g2c_pong') {
+                    if (msg.record === 'msg_g2c_ping') {
+                        ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
+                    }
                     return;
                 }
 
-                // Quando conecta com sucesso (status 0), se inscreve UNICAMENTE na carteira
                 if (msg.record === 'msg_g2c_result' && msg.status === 0 && msg.op_id === 1) {
                     const queueCarteira = `inv:/wallet/wallet-${CONFIG.AVATAR_ID}`;
                     ws.send(JSON.stringify({ queues_with_results: [{ record: "subscription", name: queueCarteira, op_id: 2 }], record: "msg_c2g_subscribe" }));
                     console.log(`${Color.Green}[+] Radar Financeiro blindado na fila da carteira principal!${Color.Reset}`);
+                    return;
                 }
 
-                // O GATILHO: Apenas o Admin pode enviar msg pra essa fila oculta
-                if (msg.record === 'msg_g2c_send_message' && msg.user_id === 'YWRtaW4=') {
-                    console.log(`${Color.Cyan}[FINANCEIRO] Movimentação na carteira detectada! Auditando extrato em 3s...${Color.Reset}`);
+                // GATILHO UNIVERSAL: Qualquer evento real na conta dispara a auditoria com sucesso
+                console.log(`${Color.Cyan}[FINANCEIRO] Evento detectado na rede (${msg.record})! Auditando extrato em 3s...${Color.Reset}`);
+                
+                setTimeout(() => { 
+                    bot.auditarExtrato(); 
+                }, 3000);
 
-                    // Espera 3 segundos pro IMVU gerar a mensagem de comprovante no Inbox
-                    setTimeout(() => this.auditarExtrato(), 3000);
-                }
             } catch(e) {}
         });
 
-        // Loop de auto-recuperação caso a rede do Render pisque
         ws.on('close', () => {
+            if (heartbeat) clearInterval(heartbeat);
             console.log(`${Color.Red}[!] Radar Financeiro caiu. Reiniciando o Socket invisível em 10s...${Color.Reset}`);
-            setTimeout(() => this.iniciarRadarFinanceiro(), 10000);
+            setTimeout(() => { bot.iniciarRadarFinanceiro(); }, 10000);
+        });
+
+        ws.on('error', (err: any) => {
+            console.log(`${Color.Red}[!] Erro de Rede no Radar Financeiro: ${err.message}${Color.Reset}`);
         });
     }
 
-    private async auditarExtrato() {
+    // ARROW FUNCTION: Garante que o contexto nunca se perca na hora de injetar a moeda
+    private auditarExtrato = async () => {
         try {
-            // Puxa as últimas 5 mensagens pra ver quem foi que mandou o dinheiro
             const msgRes = await axios.get('https://api.imvu.com/message/message', {
                 headers: this.postHeaders,
                 params: { limit: 5 }
@@ -211,11 +234,9 @@ export class BotManager {
             for (const key in messages) {
                 const msg = messages[key].data;
 
-                // Tem que ser do Sistema do IMVU (user-1) e tem que ser Não Lida (unread: true) pra não creditar 2x
                 if (msg && msg.unread && msg.sender === "http://api.imvu.com/user/user-1") {
                     const corpoMensagem = msg.message.toLowerCase();
 
-                    // Se a mensagem contiver as palavras chaves do IMVU de transferência:
                     if (corpoMensagem.includes("credits from") || corpoMensagem.includes("créditos de")) {
                         const valorMatch = msg.message.match(/(\d+)\s*credits/i) || msg.message.match(/(\d+)\s*créditos/i);
                         const remetenteMatch = msg.message.match(/from\s+([a-zA-Z0-9_-]+)/i) || msg.message.match(/de\s+([a-zA-Z0-9_-]+)/i);
@@ -226,24 +247,19 @@ export class BotManager {
 
                             console.log(`\x1b[32m[PAGAMENTO] ${creditosRecebidos} Créditos recebidos de @${nickPagador}\x1b[0m`);
 
-                            // 1. MARCA COMO LIDA: Desarma a bomba na API do IMVU para não entregar moedas duplicadas
                             await axios.post(`https://api.imvu.com/message/message-${msg.id}`, { unread: false }, { headers: this.postHeaders });
 
-                            // 2. ENTREGA O PRODUTO NO SUPABASE
                             const { data: userData } = await this.supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
 
                             if (userData) {
-                                // SE MANDOU EXATAMENTE 20K -> ATIVA VIP 15
                                 if (creditosRecebidos === 20000) {
                                     await this.supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
                                     console.log(`\x1b[35m[SISTEMA] Plano VIP 15 entregue automaticamente para @${nickPagador}\x1b[0m`);
                                 } 
-                                // SE MANDOU EXATAMENTE 35K -> ATIVA VIP 30
                                 else if (creditosRecebidos === 35000) {
                                     await this.supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
                                     console.log(`\x1b[35m[SISTEMA] Plano VIP 30 entregue automaticamente para @${nickPagador}\x1b[0m`);
                                 } 
-                                // QUALQUER OUTRO VALOR -> SOMA NA CARTEIRA COMO MOEDAS AVULSAS
                                 else {
                                     const moedasCompradas = Math.floor(creditosRecebidos / 200);
                                     if (moedasCompradas > 0) {

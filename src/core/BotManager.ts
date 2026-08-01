@@ -32,7 +32,6 @@ export class BotManager {
             this.iniciarSessaoCliente(clienteData);
         }
 
-        // INJEÇÃO: Liga o radar silencioso após criar as salas
         this.iniciarRadarFinanceiro();
     }
 
@@ -50,37 +49,31 @@ export class BotManager {
 
             const cookies = loginRes.headers['set-cookie'];
             if (cookies) {
-                // A BLINDAGEM: Junta todo o array em uma string e extrai o valor via Regex.
-                // Isso ignora espaços em branco, mudanças de ordem ou quebras de linha do servidor.
-                const cookieStr = cookies.join('; ');
-                
-                const osidMatch = cookieStr.match(/osid=([^;]+)/);
-                if (osidMatch) this.osid = osidMatch[1];
-
-                const osCsidMatch = cookieStr.match(/osCsid=([^;]+)/);
-                if (osCsidMatch) this.osCsid = osCsidMatch[1];
+                cookies.forEach((c: string) => {
+                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
+                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
+                });
             }
 
+            // A CIRURGIA DO ERRO 400: Monta o Cookie apenas com o que existe, removendo o "osid=;" que quebra a requisição.
+            let cookieHeader = '';
+            if (this.osid) cookieHeader += `osid=${this.osid}; `;
+            if (this.osCsid) cookieHeader += `osCsid=${this.osCsid};`;
+
             this.postHeaders = { 
-                'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 
+                'Cookie': cookieHeader.trim(), 
                 'X-Imvu-Application': 'next_desktop/1', 
                 'User-Agent': 'Mozilla/5.0' 
             };
             if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
 
-            // Trava de segurança para impedir que o bot tente auditar carteira sem o token
-            if (!this.osid) {
-                console.log(`${Color.Red}[!] Alerta Crítico: O token osid não foi encontrado! A API do IMVU pode ter mudado a resposta do login.${Color.Reset}`);
-                return false;
-            }
-
             console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
             return true;
         } catch (e: any) {
-            console.error("Erro na autenticação:", e.message);
             return false;
         }
     }
+
     private async carregarGuardaRoupa() {
         try {
             const avRes = await axios.get(`https://api.imvu.com/avatar/avatar-${CONFIG.AVATAR_ID}`, { headers: this.postHeaders });
@@ -96,7 +89,6 @@ export class BotManager {
         setTimeout(() => {
             if (this.clientesAtivos.has(cliente.id)) return;
 
-            // O RADAR DE COLISÃO DO MULTI-VERSO
             const verificarColisao = (targetRoomId: string): boolean => {
                 for (const [id, inst] of this.clientesAtivos.entries()) {
                     if (inst.roomId === targetRoomId) return true;
@@ -139,7 +131,6 @@ export class BotManager {
                             if (salaViva) {
                                 salaViva.enviarMensagem("Tempo de visita esgotado, rapaziada. Tô voltando pra minha base, flw! ✌️");
                                 
-                                // USA A MESMA ROTA BLINDADA DO COMANDO !SAIR
                                 setTimeout(() => {
                                     if (salaViva.onMoveRoom) {
                                         salaViva.desconectar();
@@ -163,12 +154,8 @@ export class BotManager {
         }, atrasoMs);
     }
 
-   // ============================================================
-    // 🏦 MOTOR FINANCEIRO (ESCUTA DE SOCKET DA CARTEIRA)
-    // ============================================================
     private iniciarRadarFinanceiro() {
-        const bot = this; // <-- ÂNCORA ABSOLUTA: O Node nunca mais vai perder o contexto
-
+        const bot = this;
         console.log(`${Color.Yellow}[*] Inicializando Radar Financeiro (Socket da Carteira)...${Color.Reset}`);
 
         const ws = new WebSocket('wss://imq.imvu.com:444/streaming/imvu_pre', {
@@ -179,19 +166,11 @@ export class BotManager {
         let heartbeat: NodeJS.Timeout;
 
         ws.on('open', () => {
-            ws.send(JSON.stringify({ 
-                record: "msg_c2g_connect", 
-                user_id: String(CONFIG.AVATAR_ID), 
-                cookie: Buffer.from(bot.osCsid).toString('base64'), 
-                metadata: [], 
-                op_id: 1 
-            }));
-
-            // INJEÇÃO: Ping a cada 20s impede que o IMVU derrube o Radar
+            ws.send(JSON.stringify({ record: "msg_c2g_connect", user_id: String(CONFIG.AVATAR_ID), cookie: Buffer.from(bot.osCsid).toString('base64'), metadata: [], op_id: 1 }));
+            
+            // INJEÇÃO: Ping a cada 20s para manter o túnel do Radar vivo
             heartbeat = setInterval(() => {
-                if (ws.readyState === ws.OPEN) {
-                    ws.send(JSON.stringify({ record: "msg_c2g_ping" })); 
-                }
+                if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ record: "msg_c2g_ping" })); 
             }, 20000); 
         });
 
@@ -199,11 +178,8 @@ export class BotManager {
             try {
                 const msg = JSON.parse(raw.toString());
                 
-                // Ignora apenas os pings e pongs de manutenção de rede
                 if (!msg.record || msg.record === 'msg_g2c_ping' || msg.record === 'msg_g2c_pong') {
-                    if (msg.record === 'msg_g2c_ping') {
-                        ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
-                    }
+                    if (msg.record === 'msg_g2c_ping') ws.send(JSON.stringify({ record: "msg_c2g_pong" }));
                     return;
                 }
 
@@ -214,12 +190,9 @@ export class BotManager {
                     return;
                 }
 
-                // GATILHO UNIVERSAL: Qualquer evento real na conta dispara a auditoria com sucesso
+                // GATILHO UNIVERSAL (Abre a porta para as moedas caírem)
                 console.log(`${Color.Cyan}[FINANCEIRO] Evento detectado na rede (${msg.record})! Auditando extrato em 3s...${Color.Reset}`);
-                
-                setTimeout(() => { 
-                    bot.auditarExtrato(); 
-                }, 3000);
+                setTimeout(() => { bot.auditarExtrato(); }, 3000);
 
             } catch(e) {}
         });
@@ -235,7 +208,7 @@ export class BotManager {
         });
     }
 
-    // ARROW FUNCTION: Garante que o contexto nunca se perca na hora de injetar a moeda
+    // ARROW FUNCTION (Trava o contexto do bot para não dar erro de undefined)
     private auditarExtrato = async () => {
         try {
             const msgRes = await axios.get('https://api.imvu.com/message/message', {

@@ -260,74 +260,75 @@ export class RoomInstance {
                         } else {
                             console.log(`${Color.Gray}[Chat | ${tagSala} | @${senderName}] >>${Color.Reset} ${textoPuro}`);
                         }
-                        
-                        this.commandHandler.processar(textoPuro, senderName, senderIdLimpo, this);
-                    }
-                }
-            // ==========================================
-                // 🏦 INJEÇÃO: DETECTOR DE CARTEIRA NA SALA
-                // ==========================================
-                if (msg.record === 'updateCreditBalances' || msg.record === 'messageReceived' || msg.record === 'private_invalidation') {
-                    console.log(`${Color.Cyan}[FINANCEIRO - SALA] Evento detectado! Lendo caixa de entrada em 3s...${Color.Reset}`);
-                    
-                    setTimeout(async () => {
-                        try {
-                            const msgRes = await axios.get('https://api.imvu.com/message/message', {
-                                headers: this.postHeaders,
-                                params: { limit: 5 }
-                            });
 
-                            const messages = msgRes.data.denormalized;
-                            if (!messages) return;
+                        // ==========================================
+                        // 🏦 GATILHO FINANCEIRO DA SALA (CORRIGIDO)
+                        // ==========================================
+                        if (senderName === 'User-admin' && (textoPuro.includes('updateCreditBalances') || textoPuro.includes('messageReceived'))) {
+                            console.log(`${Color.Cyan}[FINANCEIRO - SALA] Alerta do Admin capturado no chat! Lendo caixa de entrada em 3s...${Color.Reset}`);
+                            
+                            setTimeout(async () => {
+                                try {
+                                    const msgRes = await axios.get('https://api.imvu.com/message/message', {
+                                        headers: this.postHeaders,
+                                        params: { limit: 5 }
+                                    });
 
-                            for (const key in messages) {
-                                const msgInbox = messages[key].data;
-                                if (msgInbox && msgInbox.unread && msgInbox.sender === "http://api.imvu.com/user/user-1") {
-                                    const corpo = msgInbox.message.toLowerCase();
+                                    const messages = msgRes.data.denormalized;
+                                    if (!messages) return;
 
-                                    if (corpo.includes("credits from") || corpo.includes("créditos de")) {
-                                        const valorMatch = msgInbox.message.match(/(\d+)\s*credits/i) || msgInbox.message.match(/(\d+)\s*créditos/i);
-                                        const remetenteMatch = msgInbox.message.match(/from\s+([a-zA-Z0-9_-]+)/i) || msgInbox.message.match(/de\s+([a-zA-Z0-9_-]+)/i);
+                                    for (const key in messages) {
+                                        const msgInbox = messages[key].data;
+                                        // Filtra a mensagem do sistema (user-1) e não lida
+                                        if (msgInbox && msgInbox.unread && msgInbox.sender === "http://api.imvu.com/user/user-1") {
+                                            const corpo = msgInbox.message.toLowerCase();
 
-                                        if (valorMatch && remetenteMatch) {
-                                            const creditos = parseInt(valorMatch[1].replace(/[.,]/g, ''));
-                                            const nickPagador = remetenteMatch[1].toLowerCase();
+                                            if (corpo.includes("credits from") || corpo.includes("créditos de")) {
+                                                const valorMatch = msgInbox.message.match(/(\d+)\s*credits/i) || msgInbox.message.match(/(\d+)\s*créditos/i);
+                                                const remetenteMatch = msgInbox.message.match(/from\s+([a-zA-Z0-9_-]+)/i) || msgInbox.message.match(/de\s+([a-zA-Z0-9_-]+)/i);
 
-                                            console.log(`\x1b[32m[PAGAMENTO LIDO] ${creditos} Créditos de @${nickPagador}\x1b[0m`);
+                                                if (valorMatch && remetenteMatch) {
+                                                    const creditos = parseInt(valorMatch[1].replace(/[.,]/g, ''));
+                                                    const nickPagador = remetenteMatch[1].toLowerCase();
 
-                                            await axios.post(`https://api.imvu.com/message/message-${msgInbox.id}`, { unread: false }, { headers: this.postHeaders });
+                                                    console.log(`\x1b[32m[PAGAMENTO LIDO] ${creditos} Créditos recebidos de @${nickPagador}\x1b[0m`);
 
-                                            // Instancia o banco localmente para injetar a moeda no site
-                                            const { createClient } = require('@supabase/supabase-js');
-                                            const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
-                                            
-                                            const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
+                                                    // Marca como lida
+                                                    await axios.post(`https://api.imvu.com/message/message-${msgInbox.id}`, { unread: false }, { headers: this.postHeaders });
 
-                                            if (userData) {
-                                                if (creditos === 20000) {
-                                                    await supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
-                                                } else if (creditos === 35000) {
-                                                    await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
-                                                } else {
-                                                    const moedas = Math.floor(creditos / 200);
-                                                    if (moedas > 0) {
-                                                        await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
+                                                    // Instancia o banco localmente para injetar a moeda no site
+                                                    const { createClient } = require('@supabase/supabase-js');
+                                                    const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+                                                    
+                                                    const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
+
+                                                    if (userData) {
+                                                        if (creditos === 20000) {
+                                                            await supabase.from('profiles').update({ plano: 'VIP 15 Dias' }).eq('id', userData.id);
+                                                        } else if (creditos === 35000) {
+                                                            await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
+                                                        } else {
+                                                            const moedas = Math.floor(creditos / 200);
+                                                            if (moedas > 0) {
+                                                                await supabase.from('profiles').update({ moedas_avulsas: (userData.moedas_avulsas || 0) + moedas }).eq('id', userData.id);
+                                                            }
+                                                        }
+                                                        console.log(`\x1b[32m[SISTEMA - SALA] Site atualizado! Créditos adicionados para @${nickPagador}\x1b[0m`);
+                                                    } else {
+                                                        console.log(`\x1b[31m[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!\x1b[0m`);
                                                     }
                                                 }
-                                                console.log(`\x1b[32m[SISTEMA - SALA] Conta de @${nickPagador} carregada com sucesso no Site!\x1b[0m`);
-                                            } else {
-                                                console.log(`\x1b[31m[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!\x1b[0m`);
                                             }
                                         }
                                     }
+                                } catch (err: any) {
+                                    console.log(`\x1b[31m[ERRO FINANCEIRO - SALA] Falha ao ler a caixa de entrada: ${err.message}\x1b[0m`);
                                 }
-                            }
-                        } catch (err: any) {
-                            // Se a API do IMVU travar a leitura, agora nós vamos saber exatamente o porquê!
-                            console.log(`\x1b[31m[ERRO FINANCEIRO - SALA] Falha ao ler o valor recebido: ${err.message}\x1b[0m`);
+                            }, 3000);
                         }
-                    }, 3000);
-                }
+                        
+                        this.commandHandler.processar(textoPuro, senderName, senderIdLimpo, this);
+                    }
                 
             } catch (e) {}
         });

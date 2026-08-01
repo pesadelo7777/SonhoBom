@@ -312,10 +312,22 @@ export class RoomInstance {
                                 const nickPagador = (await this.obterNomeUsuario(senderId)).toLowerCase();
                                 console.log(`${Color.Green}[PAGAMENTO NATIVO] ${creditosRecebidos} Créditos confirmados de @${nickPagador}${Color.Reset}`);
                                 
-                                const { createClient } = require('@supabase/supabase-js');
-                                const supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+                                // Força o bot a usar a variável do Render (se existir), ignorando o config.ts caso esteja hardcoded
+                                const urlBanco = process.env.SUPABASE_URL || CONFIG.SUPABASE_URL;
+                                const chaveBanco = process.env.SUPABASE_KEY || CONFIG.SUPABASE_KEY;
+                                const supabase = createClient(urlBanco, chaveBanco);
                                 
-                                const { data: userData } = await supabase.from('profiles').select('*').ilike('imvu_account', nickPagador).single();
+                                // Busca flexível com .maybeSingle() para não crashar se houver contas duplicadas nos testes
+                                const { data: userData, error: dbError } = await supabase
+                                    .from('profiles')
+                                    .select('*')
+                                    .ilike('imvu_account', `%${nickPagador}%`)
+                                    .maybeSingle();
+
+                                // Dedo-duro ativado: se o Supabase bloquear a leitura, ele vai gritar no console
+                                if (dbError) {
+                                    console.log(`${Color.Red}[ERRO SUPABASE] O banco recusou a leitura: ${dbError.message}${Color.Reset}`);
+                                }
 
                                 if (userData) {
                                     if (creditosRecebidos === 20000) {
@@ -325,7 +337,6 @@ export class RoomInstance {
                                         await supabase.from('profiles').update({ plano: 'VIP 30 Dias' }).eq('id', userData.id);
                                         console.log(`${Color.Green}[SISTEMA] VIP 30 Dias ativado para @${nickPagador}${Color.Reset}`);
                                     } else {
-                                        // A CIRURGIA DO TESTE: Arredonda pra 1 moeda se for o teste de 100 pra destravar o painel
                                         let moedas = Math.floor(creditosRecebidos / 200);
                                         if (moedas === 0 && creditosRecebidos > 0) moedas = 1; 
 
@@ -333,7 +344,7 @@ export class RoomInstance {
                                         console.log(`${Color.Green}[SISTEMA] Site atualizado! ${moedas} moedas liberadas para @${nickPagador}${Color.Reset}`);
                                     }
                                 } else {
-                                    console.log(`${Color.Red}[ALERTA] @${nickPagador} pagou, mas não tem conta vinculada no site!${Color.Reset}`);
+                                    console.log(`${Color.Red}[ALERTA] @${nickPagador} pagou, mas não foi encontrado no banco (ou bloqueado por permissão)!${Color.Reset}`);
                                 }
                                 
                             } else if (this.pendingCreditAmount > 0 || this.pendingSenderId) {

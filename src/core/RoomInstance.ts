@@ -268,10 +268,7 @@ export class RoomInstance {
                     
                     setTimeout(async () => {
                         try {
-                            // Como o radar mestre (BotManager) tem acesso ao Supabase, vamos apenas simular 
-                            // a leitura do extrato direto daqui de forma assíncrona, usando a mesma lógica!
-                            const { data: { default: axios } } = await import('axios');
-                            
+                            // Chama o axios diretamente, ele já existe no topo do arquivo!
                             const msgRes = await axios.get('https://api.imvu.com/message/message', {
                                 headers: this.postHeaders,
                                 params: { limit: 5 }

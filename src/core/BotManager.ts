@@ -50,22 +50,37 @@ export class BotManager {
 
             const cookies = loginRes.headers['set-cookie'];
             if (cookies) {
-                cookies.forEach((c: string) => {
-                    if (c.startsWith('osid=')) this.osid = c.split(';')[0].replace('osid=', '');
-                    if (c.startsWith('osCsid=')) this.osCsid = c.split(';')[0].replace('osCsid=', '');
-                });
+                // A BLINDAGEM: Junta todo o array em uma string e extrai o valor via Regex.
+                // Isso ignora espaços em branco, mudanças de ordem ou quebras de linha do servidor.
+                const cookieStr = cookies.join('; ');
+                
+                const osidMatch = cookieStr.match(/osid=([^;]+)/);
+                if (osidMatch) this.osid = osidMatch[1];
+
+                const osCsidMatch = cookieStr.match(/osCsid=([^;]+)/);
+                if (osCsidMatch) this.osCsid = osCsidMatch[1];
             }
 
-            this.postHeaders = { 'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 'X-Imvu-Application': 'next_desktop/1', 'User-Agent': 'Mozilla/5.0' };
+            this.postHeaders = { 
+                'Cookie': `osid=${this.osid}; osCsid=${this.osCsid};`, 
+                'X-Imvu-Application': 'next_desktop/1', 
+                'User-Agent': 'Mozilla/5.0' 
+            };
             if (this.sauce) this.postHeaders['X-Imvu-Sauce'] = this.sauce;
+
+            // Trava de segurança para impedir que o bot tente auditar carteira sem o token
+            if (!this.osid) {
+                console.log(`${Color.Red}[!] Alerta Crítico: O token osid não foi encontrado! A API do IMVU pode ter mudado a resposta do login.${Color.Reset}`);
+                return false;
+            }
 
             console.log(`${Color.Green}[+] Autenticação Mestre concluída.${Color.Reset}`);
             return true;
         } catch (e: any) {
+            console.error("Erro na autenticação:", e.message);
             return false;
         }
     }
-
     private async carregarGuardaRoupa() {
         try {
             const avRes = await axios.get(`https://api.imvu.com/avatar/avatar-${CONFIG.AVATAR_ID}`, { headers: this.postHeaders });
